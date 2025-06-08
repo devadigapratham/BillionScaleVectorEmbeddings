@@ -1,6 +1,6 @@
 """
 Modal Cloud GPU script to test 10k embeddings on A100 40GB and project to 1 billion
-Version without synthetic data - requires real GCC codebase
+Optimized version that extracts 10k tokens from local GCC repo and uploads only that data
 """
 
 import modal
@@ -8,8 +8,9 @@ import time
 import os
 import glob
 import tempfile
-import shutil
+import json
 from typing import List, Dict, Any
+import re
 
 # Modal setup
 app = modal.App("embedding-timer")
@@ -24,27 +25,26 @@ image = (
         "numpy",
         "tqdm"
     ])
-    # Use the new add_local_dir method instead of Mount (fixes deprecation warning)
-    .add_local_dir("embedding_datasets/gcc_subset", remote_path="/gcc")
 )
 
-@app.function(
-    image=image,
-    gpu="A100-40GB",
-    timeout=3600,
-    memory=32768,
-)
-def extract_gcc_code(test_size: int = 10000) -> List[str]:
-    """Extract code snippets from uploaded GCC codebase"""
-    print(f"Extracting {test_size} code snippets from GCC...")
-    
-    code_snippets = []
-    gcc_path = "/gcc"
+def extract_gcc_tokens_locally(gcc_path: str, target_tokens: int = 10000) -> List[str]:
+    """
+    Extract approximately 10k tokens worth of code from local GCC repository
+    This runs locally before uploading to Modal
+    """
+    print(f"Extracting ~{target_tokens} tokens from local GCC at: {gcc_path}")
     
     if not os.path.exists(gcc_path):
-        raise FileNotFoundError(f"GCC directory not found at {gcc_path}. Please ensure 'embedding_datasets/gcc_subset' exists locally.")
+        raise FileNotFoundError(f"GCC directory not found at: {gcc_path}")
     
+    code_snippets = []
+    total_tokens = 0
     extensions = ['.c', '.cpp', '.cc', '.cxx', '.h', '.hpp']
+    
+    # Simple token estimation (rough approximation)
+    def estimate_tokens(text: str) -> int:
+        # Rough estimate: ~4 chars per token for code
+        return len(text) // 4
     
     print(f"Scanning GCC directory: {gcc_path}")
     
@@ -54,7 +54,7 @@ def extract_gcc_code(test_size: int = 10000) -> List[str]:
         print(f"Found {len(files)} {ext} files")
         
         for file_path in files:
-            if len(code_snippets) >= test_size:
+            if total_tokens >= target_tokens:
                 break
                 
             try:
@@ -95,30 +95,52 @@ def extract_gcc_code(test_size: int = 10000) -> List[str]:
                     if (not in_function and len(current_chunk) >= 5) or len(current_chunk) >= 25:
                         chunk_text = '\n'.join(current_chunk)
                         if len(chunk_text.strip()) > 100:
-                            code_snippets.append(chunk_text)
-                            if len(code_snippets) >= test_size:
-                                print(f"Extracted {len(code_snippets)} code snippets from GCC")
-                                return code_snippets[:test_size]
+                            chunk_tokens = estimate_tokens(chunk_text)
+                            if total_tokens + chunk_tokens <= target_tokens:
+                                code_snippets.append(chunk_text)
+                                total_tokens += chunk_tokens
+                            else:
+                                # Take partial chunk to reach exact target
+                                remaining_tokens = target_tokens - total_tokens
+                                remaining_chars = remaining_tokens * 4
+                                partial_chunk = chunk_text[:remaining_chars]
+                                if len(partial_chunk.strip()) > 100:
+                                    code_snippets.append(partial_chunk)
+                                total_tokens = target_tokens
+                                break
                         current_chunk = []
                         brace_count = 0
                         in_function = False
                 
-                # Last chunk
-                if current_chunk and len('\n'.join(current_chunk).strip()) > 100:
-                    code_snippets.append('\n'.join(current_chunk))
+                # Last chunk if we haven't reached target
+                if current_chunk and total_tokens < target_tokens:
+                    chunk_text = '\n'.join(current_chunk)
+                    if len(chunk_text.strip()) > 100:
+                        chunk_tokens = estimate_tokens(chunk_text)
+                        if total_tokens + chunk_tokens <= target_tokens:
+                            code_snippets.append(chunk_text)
+                            total_tokens += chunk_tokens
+                        else:
+                            remaining_tokens = target_tokens - total_tokens
+                            remaining_chars = remaining_tokens * 4
+                            partial_chunk = chunk_text[:remaining_chars]
+                            if len(partial_chunk.strip()) > 100:
+                                code_snippets.append(partial_chunk)
+                            total_tokens = target_tokens
+                            break
+                
+                if total_tokens >= target_tokens:
+                    break
                     
             except Exception as e:
                 print(f"Error reading {file_path}: {e}")
                 continue
         
-        if len(code_snippets) >= test_size:
+        if total_tokens >= target_tokens:
             break
     
-    if len(code_snippets) < test_size:
-        print(f"Warning: Only extracted {len(code_snippets)} code snippets, requested {test_size}")
-    
-    print(f"Successfully extracted {len(code_snippets)} code snippets from GCC")
-    return code_snippets[:test_size]
+    print(f"Extracted {len(code_snippets)} code snippets (~{total_tokens} tokens)")
+    return code_snippets
 
 @app.function(
     image=image,
@@ -163,7 +185,7 @@ def benchmark_model_on_a100(model_name: str, code_snippets: List[str]) -> Dict[s
         try:
             print(f"Testing batch size: {batch_size}")
             
-            # Test with 2k samples to find optimal batch size
+            # Test with subset of samples to find optimal batch size
             test_sample = code_snippets[:min(2000, len(code_snippets))]
             
             # Warmup
@@ -311,8 +333,8 @@ def project_to_billion(results: Dict[str, Dict[str, Any]], test_size: int, targe
 @app.local_entrypoint()
 def main():
     """Main function to run the complete benchmark"""
-    print("Modal A100 40GB Embedding Timer")
-    print("=" * 50)
+    print("Modal A100 40GB Embedding Timer - GCC Token Extractor")
+    print("=" * 60)
     
     TEST_SIZE = 10000
     TARGET_SIZE = 1_000_000_000
@@ -322,15 +344,40 @@ def main():
         'all-mpnet-base-v2': 768
     }
     
-    print(f"🔧 REQUIREMENTS:")
-    print(f"   1. Create directory: 'embedding_datasets/gcc_subset'")
-    print(f"   2. Copy your GCC .c/.cpp/.h files there (under 125k files total)")
-    print(f"   3. Run: modal run modal_gpu_time.py")
-    print(f"   4. Script will fail if GCC directory is missing\n")
+    # Get GCC path from user or environment
+    gcc_path = os.environ.get('GCC_PATH', 'embedding_datasets/gcc')
+    if not os.path.exists(gcc_path):
+        print(f"❌ GCC directory not found at: {gcc_path}")
+        print(f"   Please set GCC_PATH environment variable or place GCC repo at embedding_datasets/gcc")
+        print(f"   Example: export GCC_PATH=/path/to/gcc-repo")
+        return
     
-    # Extract code (requires real GCC directory)
-    print("Extracting code samples from GCC...")
-    code_snippets = extract_gcc_code.remote(TEST_SIZE)
+    print(f"🔧 SETUP:")
+    print(f"   Using GCC repository at: {gcc_path}")
+    print(f"   Extracting ~10k tokens of code locally")
+    print(f"   Uploading only the extracted snippets to Modal\n")
+    
+    # Extract code locally (this runs on your machine)
+    print("Extracting code samples locally...")
+    try:
+        code_snippets = extract_gcc_tokens_locally(gcc_path, target_tokens=10000)
+        
+        if not code_snippets:
+            print("❌ No code snippets extracted. Check your GCC path.")
+            return
+            
+        print(f"✅ Extracted {len(code_snippets)} code snippets")
+        
+        # Create test dataset (duplicate snippets to reach TEST_SIZE if needed)
+        while len(code_snippets) < TEST_SIZE:
+            code_snippets.extend(code_snippets[:min(len(code_snippets), TEST_SIZE - len(code_snippets))])
+        
+        code_snippets = code_snippets[:TEST_SIZE]
+        print(f"✅ Prepared {len(code_snippets)} samples for benchmarking")
+        
+    except Exception as e:
+        print(f"❌ Error extracting code: {e}")
+        return
     
     # Benchmark both models on A100
     results = {}
@@ -353,13 +400,8 @@ def main():
         hours = projections[model_name]['hours']
         cost = projections[model_name]['cost_usd']
         print(f"{model_name:<20} {throughput:<15.1f} {hours:<12.1f} ${cost:<11.2f}")
+    print(f"{'='*70}")    
     
-    # Best option
-    fastest = min(projections.keys(), key=lambda x: projections[x]['hours'])
-    cheapest = min(projections.keys(), key=lambda x: projections[x]['cost_usd'])
-    
-    print(f"\n🏆 Fastest: {fastest} ({projections[fastest]['hours']:.1f} hours)")
-    print(f"💰 Cheapest: {cheapest} (${projections[cheapest]['cost_usd']:.2f})")
 
 if __name__ == "__main__":
     main()

@@ -56,5 +56,5 @@ Run the following scripts in order:
 - `downloadRepos.py` - Downloads datasets or repositories.
 - `embedding_comparision.py` - Generates and compares vector embeddings.
 - `local_gpu_time.py` - Benchmarks GPU performance locally.
-- `modal_gpu_time.py` - Benchmarks GPU performance using Modal.
+- `modal_gpu_time.py` - Benchmarks GPU performance using Modal (uses only gcc repo for benchmarking)
 
