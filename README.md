@@ -51,10 +51,16 @@ Run the following scripts in order:
       python modal_gpu_time.py
       ```
 
+4. **Generate embeddings on Multiple GPUs:** 
+    - ```bash
+        python modal_embeddings_generator.py
+      ```
+
 ## Code Structure
 
 - `downloadRepos.py` - Downloads datasets or repositories.
 - `embedding_comparision.py` - Generates and compares vector embeddings.
 - `local_gpu_time.py` - Benchmarks GPU performance locally.
 - `modal_gpu_time.py` - Benchmarks GPU performance using Modal (uses only gcc repo for benchmarking)
+- `modal_embeddings_generator` - Script for generating embeddings using multiple gpus on modal cloud. 
 
