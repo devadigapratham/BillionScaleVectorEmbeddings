@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Repository Cloning Script
-Clones major open-source repositories for code embedding generation.
-"""
 
 import os
 import subprocess
