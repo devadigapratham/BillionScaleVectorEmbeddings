@@ -54,7 +54,7 @@ class CodeEmbeddingGenerator:
                  output_dir: str = "./embeddings",
                  model_name: str = "microsoft/codebert-base",
                  max_length: int = 256,  # Reduced from 512
-                 batch_size: int = 16,   # Reduced from 32
+                 batch_size: int = 128,   
                  num_gpus: int = 4,
                  target_embeddings: int = 1_000_000_000):
         
