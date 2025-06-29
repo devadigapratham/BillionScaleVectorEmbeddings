@@ -381,8 +381,8 @@ class CodeEmbeddingGenerator:
         self.start_time = time.time()
         
         # Create queues with smaller sizes to avoid memory buildup
-        file_queue = mp.Queue(maxsize=100)  # Reduced from 1000
-        result_queue = mp.Queue(maxsize=20)  # Reduced from 100
+        file_queue = mp.Queue(maxsize=500)  # Reduced from 1000
+        result_queue = mp.Queue(maxsize=50)  # Reduced from 100
         progress_queue = mp.Queue()
         stop_event = mp.Event()
         
