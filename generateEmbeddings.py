@@ -40,6 +40,7 @@ class CodeEmbedder:
     def __init__(self):
         self.repos_root = Path(REPOS_ROOT)
         self.output_dir = Path(OUTPUT_DIR)
+
         self.output_dir.mkdir(exist_ok=True)
 
         if not torch.cuda.is_available():
@@ -52,11 +53,10 @@ class CodeEmbedder:
         self.model = AutoModel.from_pretrained(MODEL_NAME, torch_dtype=torch.float16).to(self.device)
         self.model.eval()
 
+        self.global_idx = 0 
         self.progress_path = self.output_dir / "progress.log"
-        self.global_idx = 0
         if self.progress_path.exists():
-            with open(self.progress_path) as f:
-                self.global_idx = int(f.read().strip())
+            self.progress_path.unlink()
 
     def _find_code_files(self) -> Generator[CodeFile, None, None]:
         for repo_dir in sorted(self.repos_root.iterdir()):
@@ -70,7 +70,7 @@ class CodeEmbedder:
                     continue
                 try:
                     content = file_path.read_text(encoding="utf-8", errors="ignore")
-                    if not (10 < len(content) < 500_000):
+                    if not (10 < len(content) < 500_000): 
                         continue
                     if '\x00' in content:
                         continue
@@ -99,22 +99,17 @@ class CodeEmbedder:
             pickle.dump(embeddings.astype(np.float16), f)
         logger.info(f"Saved {len(embeddings)} embeddings to {out_path}")
         self.global_idx += 1
-        with open(self.progress_path, 'w') as f:
-            f.write(str(self.global_idx))
 
     def run(self):
-        total_embeddings = self.global_idx * BATCH_SIZE
+        total_embeddings = 0
         embeddings_buffer = []
         chunks_to_process = []
 
         logger.info("Scanning all repositories...")
-        #files = list(self._find_code_files())
-        #logger.info(f"Found {len(files)} files across all repositories")
-
         file_counter = 0
         start_time = time.time()
 
-        for code_file in (self._find_code_files()):
+        for code_file in self._find_code_files():
             file_counter += 1
             chunks = self._chunk_content(code_file.content)
 
@@ -137,11 +132,10 @@ class CodeEmbedder:
                         embeddings = output.cpu().numpy().astype(np.float16)
                         embeddings_buffer.extend(embeddings)
                         total_embeddings += len(embeddings)
+
                         elapsed = time.time() - start_time
                         progress_pct = (total_embeddings / TARGET_EMBEDDING_COUNT) * 100
-                        embeddings_so_far = 0 
-                        embeddings_so_far += len(embeddings)
-                        throughput = embeddings_so_far / elapsed
+                        throughput = total_embeddings / max(elapsed, 1)
                         eta = (TARGET_EMBEDDING_COUNT - total_embeddings) / throughput
                         logger.info(f"Progress: {progress_pct:.4f}% | Total embeddings so far: {total_embeddings:,} | ETA: {eta/3600:.2f} hours | Files processed: {file_counter} | Throughput: {throughput:.2f} embeddings/sec")
 
