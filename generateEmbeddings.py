@@ -142,7 +142,7 @@ class CodeEmbedder:
                         embeddings_so_far = 0 
                         embeddings_so_far += len(embeddings)
                         throughput = embeddings_so_far / elapsed
-                        eta = (TARGET_EMBEDDING_COUNT - embeddings_so_far) / throughput
+                        eta = (TARGET_EMBEDDING_COUNT - total_embeddings) / throughput
                         logger.info(f"Progress: {progress_pct:.4f}% | Total embeddings so far: {total_embeddings:,} | ETA: {eta/3600:.2f} hours | Files processed: {file_counter} | Throughput: {throughput:.2f} embeddings/sec")
 
                     except Exception as e:
