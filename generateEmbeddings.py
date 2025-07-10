@@ -110,8 +110,8 @@ class CodeEmbedder:
         chunks_to_process = []
 
         logger.info("Scanning all repositories...")
-        files = list(self._find_code_files())
-        logger.info(f"Found {len(files)} files across all repositories")
+        #files = list(self._find_code_files())
+        #logger.info(f"Found {len(files)} files across all repositories")
 
         file_counter = 0
         start_time = time.time()
