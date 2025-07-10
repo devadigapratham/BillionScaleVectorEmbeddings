@@ -139,8 +139,8 @@ class CodeEmbedder:
                         total_embeddings += len(embeddings)
                         elapsed = time.time() - start_time
                         progress_pct = (total_embeddings / TARGET_EMBEDDING_COUNT) * 100
-                        speed = total_embeddings / max(elapsed, 1)
-                        eta = (TARGET_EMBEDDING_COUNT - total_embeddings) / speed
+                        throughput = total_embeddings / elapsed
+                        eta = (TARGET_EMBEDDING_COUNT - total_embeddings) / throughput
                         logger.info(f"Progress: {progress_pct:.4f}% | Total embeddings so far: {total_embeddings:,} | ETA: {eta/3600:.2f} hours | Files processed: {file_counter}")
 
                     except Exception as e:
