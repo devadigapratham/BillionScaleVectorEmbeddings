@@ -11,14 +11,12 @@ from typing import List, Generator
 import numpy as np
 import torch
 from transformers import AutoTokenizer, AutoModel
-from tqdm import tqdm
 
 REPOS_ROOT = "./repositories"
 OUTPUT_DIR = "./embeddings_billion"
 MODEL_NAME = "microsoft/codebert-base"
 MAX_TOKEN_LENGTH = 512
-INFERENCE_BATCH_SIZE = 8192
-SAVE_BATCH_SIZE = 8192
+BATCH_SIZE = 8192
 TARGET_EMBEDDING_COUNT = 1_000_000_000
 
 CHUNK_LINES = 8
@@ -105,7 +103,7 @@ class CodeEmbedder:
             f.write(str(self.global_idx))
 
     def run(self):
-        total_embeddings = self.global_idx * SAVE_BATCH_SIZE
+        total_embeddings = self.global_idx * BATCH_SIZE
         embeddings_buffer = []
         chunks_to_process = []
 
@@ -127,7 +125,7 @@ class CodeEmbedder:
 
                 chunks_to_process.append(chunk)
 
-                if len(chunks_to_process) >= INFERENCE_BATCH_SIZE:
+                if len(chunks_to_process) >= BATCH_SIZE:
                     try:
                         inputs = self.tokenizer(chunks_to_process, padding=True, truncation=True,
                                                 max_length=MAX_TOKEN_LENGTH, return_tensors='pt')
@@ -150,10 +148,10 @@ class CodeEmbedder:
                     finally:
                         chunks_to_process.clear()
 
-                    while len(embeddings_buffer) >= SAVE_BATCH_SIZE:
-                        to_save = embeddings_buffer[:SAVE_BATCH_SIZE]
+                    while len(embeddings_buffer) >= BATCH_SIZE:
+                        to_save = embeddings_buffer[:BATCH_SIZE]
                         self._save_shard(np.array(to_save))
-                        embeddings_buffer = embeddings_buffer[SAVE_BATCH_SIZE:]
+                        embeddings_buffer = embeddings_buffer[BATCH_SIZE:]
 
         if embeddings_buffer:
             self._save_shard(np.array(embeddings_buffer))
