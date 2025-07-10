@@ -141,7 +141,7 @@ class CodeEmbedder:
                         progress_pct = (total_embeddings / TARGET_EMBEDDING_COUNT) * 100
                         throughput = total_embeddings / elapsed
                         eta = (TARGET_EMBEDDING_COUNT - total_embeddings) / throughput
-                        logger.info(f"Progress: {progress_pct:.4f}% | Total embeddings so far: {total_embeddings:,} | ETA: {eta/3600:.2f} hours | Files processed: {file_counter}, Throughput: {throughput:.2f} embeddings/sec")
+                        logger.info(f"Progress: {progress_pct:.4f}% | Total embeddings so far: {total_embeddings:,} | ETA: {eta/3600:.2f} hours | Files processed: {file_counter} | Throughput: {throughput:.2f} embeddings/sec")
 
                     except Exception as e:
                         logger.error(f"Model error: {e}")
