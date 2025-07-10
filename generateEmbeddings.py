@@ -50,7 +50,7 @@ class CodeEmbedder:
         logger.info(f"Using device: {torch.cuda.get_device_name(0)}")
 
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        self.model = AutoModel.from_pretrained(MODEL_NAME, torch_dtype=torch.bfloat16).to(self.device)
+        self.model = AutoModel.from_pretrained(MODEL_NAME, torch_dtype=torch.float16).to(self.device)
         self.model.eval()
 
         self.progress_path = self.output_dir / "progress.log"
@@ -74,7 +74,7 @@ class CodeEmbedder:
                     if not (10 < len(content) < 500_000):
                         continue
                     if '\x00' in content:
-                        continue  # skip binary
+                        continue
                     yield CodeFile(
                         path=str(file_path.relative_to(self.repos_root)),
                         content=content,
@@ -98,7 +98,7 @@ class CodeEmbedder:
         out_path = self.output_dir / f"batch_{self.global_idx:012d}.pkl.xz"
         with lzma.open(out_path, 'wb') as f:
             pickle.dump({
-                'embeddings': embeddings.astype(np.float32),
+                'embeddings': embeddings.astype(np.float16),
                 'metadata': metadata,
                 'model_name': MODEL_NAME
             }, f)
@@ -142,7 +142,7 @@ class CodeEmbedder:
                         with torch.no_grad():
                             output = self.model(**inputs).last_hidden_state[:, 0, :]
 
-                        embeddings = output.cpu().numpy()
+                        embeddings = output.cpu().numpy().astype(np.float16)
                         embeddings_buffer.extend(embeddings)
                         metadata_buffer.extend(metadata_to_process)
                         total_embeddings += len(embeddings)
