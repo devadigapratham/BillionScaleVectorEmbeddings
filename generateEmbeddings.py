@@ -118,7 +118,6 @@ class CodeEmbedder:
 
         for code_file in tqdm(self._find_code_files(), desc="Embedding"):
             file_counter += 1
-            logger.info(f"Processing file: {code_file.repo_name}/{code_file.path}")
             chunks = self._chunk_content(code_file.content)
 
             for chunk in chunks:
