@@ -5,7 +5,7 @@ import logging
 import hashlib
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Dict, Generator
+from typing import List, Generator
 
 import numpy as np
 import torch
@@ -94,15 +94,11 @@ class CodeEmbedder:
             chunks.append('\n'.join(lines))
         return chunks
 
-    def _save_shard(self, embeddings: np.ndarray, metadata: List[Dict]):
+    def _save_shard(self, embeddings: np.ndarray):
         out_path = self.output_dir / f"batch_{self.global_idx:012d}.pkl.xz"
         with lzma.open(out_path, 'wb') as f:
-            pickle.dump({
-                'embeddings': embeddings.astype(np.float16),
-                'metadata': metadata,
-                'model_name': MODEL_NAME
-            }, f)
-        logger.info(f"Saved {len(metadata)} embeddings to {out_path}")
+            pickle.dump(embeddings.astype(np.float16), f)
+        logger.info(f"Saved {len(embeddings)} embeddings to {out_path}")
         self.global_idx += 1
         with open(self.progress_path, 'w') as f:
             f.write(str(self.global_idx))
@@ -110,9 +106,7 @@ class CodeEmbedder:
     def run(self):
         total_embeddings = self.global_idx * SAVE_BATCH_SIZE
         embeddings_buffer = []
-        metadata_buffer = []
         chunks_to_process = []
-        metadata_to_process = []
 
         logger.info("Scanning all repositories...")
         files = list(self._find_code_files())
@@ -122,21 +116,17 @@ class CodeEmbedder:
             logger.info(f"Processing file: {code_file.repo_name}/{code_file.path}")
             chunks = self._chunk_content(code_file.content)
 
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
                 if total_embeddings >= TARGET_EMBEDDING_COUNT:
                     logger.info("Target reached.")
                     return
 
                 chunks_to_process.append(chunk)
-                metadata_to_process.append({
-                    'file_path': code_file.path,
-                    'chunk_id': i,
-                    'repo': code_file.repo_name
-                })
 
                 if len(chunks_to_process) >= INFERENCE_BATCH_SIZE:
                     try:
-                        inputs = self.tokenizer(chunks_to_process, padding=True, truncation=True, max_length=MAX_TOKEN_LENGTH, return_tensors='pt')
+                        inputs = self.tokenizer(chunks_to_process, padding=True, truncation=True,
+                                                max_length=MAX_TOKEN_LENGTH, return_tensors='pt')
                         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
                         with torch.no_grad():
@@ -144,24 +134,19 @@ class CodeEmbedder:
 
                         embeddings = output.cpu().numpy().astype(np.float16)
                         embeddings_buffer.extend(embeddings)
-                        metadata_buffer.extend(metadata_to_process)
                         total_embeddings += len(embeddings)
-
                     except Exception as e:
                         logger.error(f"Model error: {e}")
                     finally:
                         chunks_to_process.clear()
-                        metadata_to_process.clear()
 
                     while len(embeddings_buffer) >= SAVE_BATCH_SIZE:
                         to_save = embeddings_buffer[:SAVE_BATCH_SIZE]
-                        meta_save = metadata_buffer[:SAVE_BATCH_SIZE]
-                        self._save_shard(np.array(to_save), meta_save)
+                        self._save_shard(np.array(to_save))
                         embeddings_buffer = embeddings_buffer[SAVE_BATCH_SIZE:]
-                        metadata_buffer = metadata_buffer[SAVE_BATCH_SIZE:]
 
         if embeddings_buffer:
-            self._save_shard(np.array(embeddings_buffer), metadata_buffer)
+            self._save_shard(np.array(embeddings_buffer))
 
         logger.info(f"Done. Total embeddings: {total_embeddings}")
 
