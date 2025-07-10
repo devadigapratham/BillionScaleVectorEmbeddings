@@ -140,14 +140,11 @@ class CodeEmbedder:
                         embeddings = output.cpu().numpy().astype(np.float16)
                         embeddings_buffer.extend(embeddings)
                         total_embeddings += len(embeddings)
-
-                        logger.info(f"Total embeddings so far: {total_embeddings:,}")
-
                         elapsed = time.time() - start_time
                         progress_pct = (total_embeddings / TARGET_EMBEDDING_COUNT) * 100
                         speed = total_embeddings / max(elapsed, 1)
                         eta = (TARGET_EMBEDDING_COUNT - total_embeddings) / speed
-                        logger.info(f"Progress: {progress_pct:.4f}% | ETA: {eta/3600:.2f} hours | Files processed: {file_counter}")
+                        logger.info(f"Progress: {progress_pct:.4f}% | Total embeddings so far: {total_embeddings:,} | ETA: {eta/3600:.2f} hours | Files processed: {file_counter}")
 
                     except Exception as e:
                         logger.error(f"Model error: {e}")
