@@ -116,7 +116,7 @@ class CodeEmbedder:
         file_counter = 0
         start_time = time.time()
 
-        for code_file in tqdm(self._find_code_files(), desc="Embedding"):
+        for code_file in (self._find_code_files()):
             file_counter += 1
             chunks = self._chunk_content(code_file.content)
 
