@@ -3,6 +3,7 @@ import pickle
 import lzma
 import logging
 import hashlib
+import time
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Generator
@@ -112,7 +113,11 @@ class CodeEmbedder:
         files = list(self._find_code_files())
         logger.info(f"Found {len(files)} files across all repositories")
 
-        for code_file in tqdm(files, desc="Embedding"):
+        file_counter = 0
+        start_time = time.time()
+
+        for code_file in tqdm(self._find_code_files(), desc="Embedding"):
+            file_counter += 1
             logger.info(f"Processing file: {code_file.repo_name}/{code_file.path}")
             chunks = self._chunk_content(code_file.content)
 
@@ -135,6 +140,15 @@ class CodeEmbedder:
                         embeddings = output.cpu().numpy().astype(np.float16)
                         embeddings_buffer.extend(embeddings)
                         total_embeddings += len(embeddings)
+
+                        logger.info(f"Total embeddings so far: {total_embeddings:,}")
+
+                        elapsed = time.time() - start_time
+                        progress_pct = (total_embeddings / TARGET_EMBEDDING_COUNT) * 100
+                        speed = total_embeddings / max(elapsed, 1)
+                        eta = (TARGET_EMBEDDING_COUNT - total_embeddings) / speed
+                        logger.info(f"Progress: {progress_pct:.4f}% | ETA: {eta/3600:.2f} hours | Files processed: {file_counter}")
+
                     except Exception as e:
                         logger.error(f"Model error: {e}")
                     finally:
@@ -148,7 +162,7 @@ class CodeEmbedder:
         if embeddings_buffer:
             self._save_shard(np.array(embeddings_buffer))
 
-        logger.info(f"Done. Total embeddings: {total_embeddings}")
+        logger.info(f"Done. Total embeddings: {total_embeddings:,}")
 
 if __name__ == "__main__":
     CodeEmbedder().run()
