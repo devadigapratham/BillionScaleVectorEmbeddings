@@ -303,7 +303,6 @@ class RepoCloner:
                 for key in total_stats:
                     total_stats[key] += stats[key]
         
-        logger.info("\n--- Overall Statistics for Successfully Processed Repos ---")
         logger.info(f"Total files indexed: {self.file_index_counter:,}")
         logger.info(f"Total code files found: {total_stats['code_files']:,}")
         logger.info(f"Total size on disk: {total_stats['total_size_gb']:.3f} GB")
