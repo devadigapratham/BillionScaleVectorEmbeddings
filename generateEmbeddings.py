@@ -4,6 +4,7 @@ import lzma
 import logging
 import hashlib
 import time
+import argparse
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Generator
@@ -37,17 +38,22 @@ class CodeFile:
     file_hash: str
 
 class CodeEmbedder:
-    def __init__(self):
+    def __init__(self, gpu_id=0, index_file_path=None, start_index=None, end_index=None):
         self.repos_root = Path(REPOS_ROOT)
         self.output_dir = Path(OUTPUT_DIR)
+        
+        self.gpu_id = gpu_id
+        self.index_file_path = index_file_path
+        self.start_index = start_index
+        self.end_index = end_index
 
         self.output_dir.mkdir(exist_ok=True)
 
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA not available")
 
-        self.device = torch.device("cuda:0")
-        logger.info(f"Using device: {torch.cuda.get_device_name(0)}")
+        self.device = torch.device(f"cuda:{self.gpu_id}")
+        logger.info(f"Using device: {torch.cuda.get_device_name(self.gpu_id)}")
 
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         self.model = AutoModel.from_pretrained(MODEL_NAME, torch_dtype=torch.float16).to(self.device)
@@ -58,7 +64,61 @@ class CodeEmbedder:
         if self.progress_path.exists():
             self.progress_path.unlink()
 
+    def _read_files_from_index(self) -> Generator[CodeFile, None, None]:
+        if not self.index_file_path or not Path(self.index_file_path).exists():
+            raise FileNotFoundError(f"Index file not found: {self.index_file_path}")
+        
+        logger.info(f"Reading files from index: {self.index_file_path}")
+        logger.info(f"Processing range: {self.start_index} to {self.end_index}")
+        
+        with open(self.index_file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if ':' not in line:
+                    continue
+                
+                try:
+                    index_str, file_path = line.split(':', 1)
+                    index_num = int(index_str.strip())
+                    file_path = file_path.strip()
+                    
+                    if self.start_index is not None and index_num < self.start_index:
+                        continue
+                    if self.end_index is not None and index_num > self.end_index:
+                        continue
+                    
+                    path_obj = Path(file_path)
+                    if not path_obj.exists() or not path_obj.is_file():
+                        logger.warning(f"File not found: {file_path}")
+                        continue
+                    
+                    try:
+                        content = path_obj.read_text(encoding="utf-8", errors="ignore")
+                        if not (10 < len(content) < 500_000): 
+                            continue
+                        if '\x00' in content:
+                            continue
+                        
+                        repo_name = path_obj.parts[0] if len(path_obj.parts) > 0 else "unknown"
+                        
+                        yield CodeFile(
+                            path=str(path_obj),
+                            content=content,
+                            repo_name=repo_name,
+                            file_hash=hashlib.md5(content.encode()).hexdigest()
+                        )
+                    except Exception as e:
+                        logger.warning(f"Skipping {file_path}: {e}")
+                        
+                except ValueError as e:
+                    logger.warning(f"Invalid line format: {line}")
+                    continue
+
     def _find_code_files(self) -> Generator[CodeFile, None, None]:
+        if self.index_file_path:
+            yield from self._read_files_from_index()
+            return
+            
         for repo_dir in sorted(self.repos_root.iterdir()):
             if not repo_dir.is_dir() or repo_dir.name.startswith(".git") or repo_dir.name.startswith(".github"):
                 continue
@@ -154,5 +214,24 @@ class CodeEmbedder:
 
         logger.info(f"Done. Total embeddings: {total_embeddings:,}")
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate code embeddings")
+    parser.add_argument("--gpu-id", type=int, default=0, help="GPU ID to use (default: 0)")
+    parser.add_argument("--index-file", type=str, help="Path to the index file (file_index.txt)")
+    parser.add_argument("--start-index", type=int, help="Start index for processing files")
+    parser.add_argument("--end-index", type=int, help="End index for processing files")
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    CodeEmbedder().run()
+    args = parse_args()
+    
+    if args.index_file and (args.start_index is None or args.end_index is None):
+        logger.warning("When using --index-file, both --start-index and --end-index should be specified")
+    
+    embedder = CodeEmbedder(
+        gpu_id=args.gpu_id,
+        index_file_path=args.index_file,
+        start_index=args.start_index,
+        end_index=args.end_index
+    )
+    embedder.run()

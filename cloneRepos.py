@@ -8,6 +8,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+# Configure logging to file and console
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s',
@@ -20,25 +21,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class RepoCloner:
+    """
+    A class to clone a list of Git repositories in parallel,
+    update them if they already exist, collect statistics, and
+    create a global index of all files.
+    """
     def __init__(self, base_dir="./repositories", max_workers=8, index_filename="file_index.txt"):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(exist_ok=True)
         self.max_workers = max_workers
         
+        # --- State and Locking ---
         self.cloned_repos = []
         self.failed_repos = []
         self.file_index_counter = 0
-        self.index_lock = threading.Lock() 
+        self.index_lock = threading.Lock() # For thread-safe access to the index counter and file
 
+        # --- File Indexing Setup ---
         self.index_file_path = Path(index_filename)
+        # Clear the index file at the start of a new run
         if self.index_file_path.exists():
             self.index_file_path.unlink()
         logger.info(f"File index will be written to: {self.index_file_path.absolute()}")
 
+        # --- REPOSITORY LIST (UPDATED) ---
         self.repositories = sorted(list(set([
+            # Linux Kernel and Core Systems
             ("https://github.com/torvalds/linux.git", "linux"),
             ("https://github.com/systemd/systemd.git", "systemd"),
             ("https://github.com/util-linux/util-linux.git", "util-linux"),
+            
+            # Compilers and Language Runtimes
             ("https://github.com/llvm/llvm-project.git", "llvm-project"),
             ("https://github.com/gcc-mirror/gcc.git", "gcc"),
             ("https://github.com/rust-lang/rust.git", "rust"),
@@ -46,7 +59,7 @@ class RepoCloner:
             ("https://github.com/python/cpython.git", "cpython"),
             ("https://github.com/nodejs/node.git", "nodejs"),
             ("https://github.com/openjdk/jdk.git", "openjdk"),
-            ("https://github.com/microsoft/TypeScript.git", "TypeScript"), 
+            ("https://github.com/microsoft/TypeScript.git", "TypeScript"), # ADDED
             ("https://github.com/JuliaLang/julia.git", "julia"),
             ("https://github.com/elixir-lang/elixir.git", "elixir"),
             ("https://github.com/erlang/otp.git", "erlang-otp"),
@@ -54,45 +67,65 @@ class RepoCloner:
             ("https://github.com/clojure/clojure.git", "clojure"),
             ("https://github.com/apple/swift.git", "swift"),
             ("https://github.com/JetBrains/kotlin.git", "kotlin"),
+            
+            # Databases
             ("https://github.com/postgres/postgres.git", "postgres"),
             ("https://github.com/mysql/mysql-server.git", "mysql"),
             ("https://github.com/redis/redis.git", "redis"),
             ("https://github.com/mongodb/mongo.git", "mongodb"),
             ("https://github.com/sqlite/sqlite.git", "sqlite"),
-            ("https://github.com/opensearch-project/OpenSearch.git", "opensearch"), 
+            ("https://github.com/opensearch-project/OpenSearch.git", "opensearch"), # REPLACED elasticsearch
+            
+            # Web Servers and Networking
             ("https://github.com/apache/httpd.git", "apache-httpd"),
             ("https://github.com/nginx/nginx.git", "nginx"),
             ("https://github.com/curl/curl.git", "curl"),
             ("https://github.com/openssl/openssl.git", "openssl"),
+            
+            # Web Frameworks & Libraries
             ("https://github.com/facebook/react.git", "react"),
             ("https://github.com/angular/angular.git", "angular"),
             ("https://github.com/vuejs/vue.git", "vue"),
             ("https://github.com/django/django.git", "django"),
             ("https://github.com/pallets/flask.git", "flask"),
             ("https://github.com/laravel/laravel.git", "laravel"),
-            ("https://github.com/dotnet/aspnetcore.git", "aspnetcore"),
+            ("https://github.com/dotnet/aspnetcore.git", "aspnetcore"), # ADDED
+            
+            # Container and Cloud Technologies
             ("https://github.com/kubernetes/kubernetes.git", "kubernetes"),
             ("https://github.com/docker/cli.git", "docker-cli"),
             ("https://github.com/containerd/containerd.git", "containerd"),
             ("https://github.com/etcd-io/etcd.git", "etcd"),
+            
+            # Machine Learning and AI
             ("https://github.com/tensorflow/tensorflow.git", "tensorflow"),
             ("https://github.com/pytorch/pytorch.git", "pytorch"),
             ("https://github.com/scikit-learn/scikit-learn.git", "scikit-learn"),
             ("https://github.com/apache/spark.git", "apache-spark"),
             ("https://github.com/huggingface/transformers.git", "transformers"),
+            
+            # Graphics, Gaming, and Mobile
             ("https://github.com/godotengine/godot.git", "godot"),
             ("https://github.com/microsoft/DirectX-Graphics-Samples.git", "directx-samples"),
             ("https://github.com/Unity-Technologies/UnityCsReference.git", "unity-cs-reference"),
             ("https://github.com/facebook/react-native.git", "react-native"),
             ("https://github.com/flutter/flutter.git", "flutter"),
+
+            # Major Applications and Codebases
             ("https://github.com/chromium/chromium.git", "chromium"),
             ("https://github.com/microsoft/vscode.git", "vscode"),
             ("https://github.com/electron/electron.git", "electron"),
+            
+            # Operating Systems
             ("https://github.com/freebsd/freebsd-src.git", "freebsd"),
             ("https://github.com/openbsd/src.git", "openbsd"),
+            
+            # Build Systems and Tools
             ("https://github.com/bazelbuild/bazel.git", "bazel"),
             ("https://github.com/Kitware/CMake.git", "cmake"),
             ("https://github.com/mesonbuild/meson.git", "meson"),
+            
+            # Infrastructure and DevOps
             ("https://github.com/apache/kafka.git", "apache-kafka"),
             ("https://github.com/apache/cassandra.git", "apache-cassandra"),
             ("https://github.com/apache/hadoop.git", "apache-hadoop"),
@@ -104,17 +137,20 @@ class RepoCloner:
         ])))
 
     def clone_repository(self, repo_url, repo_name):
+        """Clone or update a single repository with improved error handling."""
         repo_path = self.base_dir / repo_name
         
         try:
             if repo_path.exists() and (repo_path / ".git").is_dir():
                 logger.info(f"Repository '{repo_name}' already exists, updating...")
+                # Fetch the latest changes from the remote
                 subprocess.run(
                     ["git", "fetch", "--prune"],
                     cwd=repo_path, check=True, capture_output=True, text=True, timeout=3600
                 )
+                # Force the local branch to match the remote, discarding local changes/untracked files
                 result = subprocess.run(
-                    ["git", "reset", "--hard", "origin/HEAD"], 
+                    ["git", "reset", "--hard", "origin/HEAD"], # Adjust if the main branch isn't HEAD
                     cwd=repo_path, capture_output=True, text=True, timeout=3600
                 )
                 if result.returncode == 0:
@@ -147,6 +183,11 @@ class RepoCloner:
             return repo_name, "error", str(e)
 
     def index_repository_files(self, repo_path_str):
+        """
+        Recursively finds all files in a repository and writes their
+        absolute paths to a central index file with a unique number.
+        This method is thread-safe.
+        """
         repo_path = Path(repo_path_str)
         logger.info(f"Starting to index files for '{repo_path.name}'...")
         
@@ -169,6 +210,7 @@ class RepoCloner:
             logger.error(f"Could not index files for '{repo_path.name}': {e}")
 
     def get_repo_stats(self, repo_path_str):
+        """Get statistics about a cloned repository."""
         repo_path = Path(repo_path_str)
         try:
             code_extensions = {
@@ -201,6 +243,7 @@ class RepoCloner:
             return {'total_files': 0, 'code_files': 0, 'total_size_gb': 0}
     
     def clone_all_repositories(self):
+        """Clone all repositories using a thread pool for parallel execution."""
         repo_count = len(self.repositories)
         logger.info(f"Starting to process {repo_count} repositories using {self.max_workers} workers.")
         
@@ -239,6 +282,7 @@ class RepoCloner:
         self.print_summary(duration)
         
     def print_summary(self, duration):
+        """Prints a detailed summary of the cloning and indexing process."""
         logger.info(f"\n{'='*80}")
         logger.info("CLONING AND INDEXING SUMMARY")
         logger.info(f"{'='*80}")
