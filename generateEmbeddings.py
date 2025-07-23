@@ -18,8 +18,6 @@ OUTPUT_DIR = "./embeddings_billion"
 MODEL_NAME = "microsoft/codebert-base"
 MAX_TOKEN_LENGTH = 128
 BATCH_SIZE = 2048
-TARGET_EMBEDDING_COUNT = 1_000_000_000
-
 CHUNK_LINES = 8
 STRIDE_LINES = 4
 
