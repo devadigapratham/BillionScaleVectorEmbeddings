@@ -154,7 +154,7 @@ class CodeEmbedder:
         return chunks
 
     def _save_shard(self, embeddings: np.ndarray):
-        out_path = self.output_dir / f"batch_{self.global_idx:012d}.pkl.xz"
+        out_path = self.output_dir / f"gpu{self.gpu_id}_batch_{self.global_idx:012d}.pkl.xz"
         with lzma.open(out_path, 'wb') as f:
             pickle.dump(embeddings.astype(np.float16), f)
         logger.info(f"Saved {len(embeddings)} embeddings to {out_path}")
@@ -220,11 +220,15 @@ def parse_args():
     parser.add_argument("--index-file", type=str, help="Path to the index file (file_index.txt)")
     parser.add_argument("--start-index", type=int, help="Start index for processing files")
     parser.add_argument("--end-index", type=int, help="End index for processing files")
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Batch size for processing (default: 2048)")
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     
+    if args.batch_size is not None:
+        globals()["BATCH_SIZE"] = args.batch_size
+        
     if args.index_file and (args.start_index is None or args.end_index is None):
         logger.warning("When using --index-file, both --start-index and --end-index should be specified")
     
