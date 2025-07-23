@@ -174,10 +174,7 @@ class CodeEmbedder:
             chunks = self._chunk_content(code_file.content)
 
             for chunk in chunks:
-                if total_embeddings >= TARGET_EMBEDDING_COUNT:
-                    logger.info("Target reached.")
-                    return
-
+                
                 chunks_to_process.append(chunk)
 
                 if len(chunks_to_process) >= BATCH_SIZE:
